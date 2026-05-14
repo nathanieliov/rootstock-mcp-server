@@ -192,9 +192,24 @@ These tools query the Rootstock PowPeg bridge — the two-way peg that moves BTC
 |------|-------------|
 | `bridge_get_pegins` | BTC→RBTC events: successful, rejected, and unrefundable pegins over a date/block range |
 | `bridge_get_pegouts` | RBTC→BTC full lifecycle: request received → batch created → confirmed → released |
+| `bridge_get_pegout_migrations` | Federation migration pegouts only — retiring federation sending BTC to the active federation address |
 | `bridge_get_transaction` | Decode any bridge transaction — method called + all bridge events emitted |
 | `bridge_get_state` | Current bridge state: federation BTC address, locking cap, BTC chain height |
 | `bridge_get_federation` | Active federation details: members, threshold, public keys, retiring federation |
+| `bridge_compute_federation_address` | Derive and verify the expected Bitcoin P2SH address from federation member public keys |
+
+### Explorer (Blockscout)
+
+These tools call the [Rootstock Blockscout](https://rootstock.blockscout.com) REST API, which provides data JSON-RPC alone cannot: decoded calldata, transaction type labels, internal call traces, token metadata, and live bridge TVL.
+
+| Tool | Description |
+|------|-------------|
+| `explorer_get_stats` | Network stats: total BTC locked in bridge (TVL), gas price tiers, total addresses and transactions |
+| `explorer_get_address` | Rich address info: balance, contract/verification status, reputation tags, token holdings |
+| `explorer_get_transactions` | Transaction history with decoded inputs, method names, and `rootstock_bridge` type labels |
+| `explorer_get_internal_txs` | Internal call traces for an address (value transfers not visible in main tx list) |
+| `explorer_get_token_info` | Token metadata: name, symbol, holders, total supply, exchange rate, market cap |
+| `explorer_search` | Cross-entity search across addresses, contracts, tokens, and public tags |
 
 ---
 

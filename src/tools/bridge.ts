@@ -12,6 +12,7 @@ import {
   fetchLogsChunked,
 } from "../utils/bridge-abi.js";
 import { getFromBlockForDays } from "../utils/block-range.js";
+import { computeFederationAddresses } from "../utils/federation-address.js";
 import type { Network } from "../types.js";
 
 const require = createRequire(import.meta.url);
@@ -412,6 +413,163 @@ export function registerBridgeTools(server: McpServer): void {
           creationBlockNumber: Number(creationBlockResult[0]),
           members,
           retiringFederation,
+        });
+      } catch (e) {
+        return toolError(e);
+      }
+    }
+  );
+
+  // ── bridge_compute_federation_address ─────────────────────────────────────
+  server.tool(
+    "bridge_compute_federation_address",
+    "Derive the expected Bitcoin P2SH address for the active or retiring federation from its member public keys using powpeg-redeemscript-parser. Compares computed address against the bridge's reported address for verification.",
+    {
+      network,
+      federationType: z
+        .enum(["active", "retiring"])
+        .default("active")
+        .describe("Which federation to compute — active (current) or retiring"),
+    },
+    async ({ network: net, federationType }) => {
+      try {
+        const isRetiring = federationType === "retiring";
+
+        const sizeResult = await callBridgeFn(
+          net,
+          isRetiring ? "getRetiringFederationSize" : "getFederationSize"
+        );
+        const size = Number(sizeResult[0]);
+
+        if (size === 0) {
+          return toolResult({
+            network: net,
+            federationType,
+            found: false,
+            reason: "No retiring federation exists",
+          });
+        }
+
+        const keyFn = isRetiring
+          ? "getRetiringFederatorPublicKeyOfType"
+          : "getFederatorPublicKeyOfType";
+
+        const keyResults = await Promise.all(
+          Array.from({ length: size }, (_, i) =>
+            callBridgeFn(net, keyFn, [i, "btc"]).catch(() => null)
+          )
+        );
+
+        const btcPubkeys = keyResults
+          .map((r) => (r ? String(r[0]) : null))
+          .filter((k): k is string => k !== null);
+
+        const computed = computeFederationAddresses(btcPubkeys, net);
+
+        const reportedResult = await callBridgeFn(
+          net,
+          isRetiring ? "getRetiringFederationAddress" : "getFederationAddress"
+        );
+        const reportedAddress = String(reportedResult[0]);
+
+        const redeemScriptResult = !isRetiring
+          ? await callBridgeFn(net, "getActivePowpegRedeemScript").catch(() => null)
+          : null;
+
+        return toolResult({
+          network: net,
+          federationType,
+          memberCount: btcPubkeys.length,
+          btcPublicKeys: btcPubkeys,
+          computed: {
+            legacyAddress: computed.legacyAddress,
+            legacyRedeemScript: computed.legacyRedeemScript,
+          },
+          bridgeReported: {
+            address: reportedAddress,
+            activePowpegRedeemScript: redeemScriptResult
+              ? String(redeemScriptResult[0])
+              : null,
+          },
+          addressMatch: computed.legacyAddress === reportedAddress,
+        });
+      } catch (e) {
+        return toolError(e);
+      }
+    }
+  );
+
+  // ── bridge_get_pegout_migrations ──────────────────────────────────────────
+  server.tool(
+    "bridge_get_pegout_migrations",
+    "Find federation migration pegouts — transactions where the retiring federation sends BTC to the active federation address. Filters release_request_received events by matching btcDestinationAddress against the known federation address.",
+    {
+      network,
+      days: z
+        .number()
+        .int()
+        .min(1)
+        .max(365)
+        .default(30)
+        .describe("Number of past days to search (ignored when fromBlock is set)"),
+      fromBlock: z
+        .string()
+        .optional()
+        .describe("Starting block number (decimal, hex, or 'earliest'). Overrides days."),
+      toBlock: z
+        .string()
+        .default("latest")
+        .describe("Ending block number (decimal, hex, or 'latest')"),
+      federationBtcAddress: z
+        .string()
+        .optional()
+        .describe(
+          "Override the federation BTC address to match against. Defaults to the current active federation address from the bridge contract. Use this for historical queries where the federation has since changed."
+        ),
+    },
+    async ({ network: net, days, fromBlock, toBlock, federationBtcAddress }) => {
+      try {
+        const from = fromBlock
+          ? normalizeBlockTag(fromBlock)
+          : await getFromBlockForDays(net, days);
+        const to = normalizeBlockTag(toBlock);
+
+        const targetAddress = federationBtcAddress
+          ? federationBtcAddress
+          : String((await callBridgeFn(net, "getFederationAddress"))[0]);
+
+        const logs = await fetchLogsChunked(net, from, to, {
+          address: BRIDGE_ADDRESS,
+          topics: [[PEGOUT_TOPICS.release_request_received]],
+        });
+
+        const migrations: unknown[] = [];
+
+        for (const log of logs) {
+          const decoded = decodeBridgeLog(log);
+          if (!decoded || decoded.eventName !== "release_request_received") continue;
+
+          const dest = String(decoded.args.btcDestinationAddress ?? "");
+          if (dest.toLowerCase() !== targetAddress.toLowerCase()) continue;
+
+          const amountSats = String(decoded.args.amount ?? "0");
+          migrations.push({
+            blockNumber: decoded.blockNumber,
+            txHash: decoded.txHash,
+            sender: decoded.args.sender,
+            btcDestinationAddress: dest,
+            amountSatoshis: amountSats,
+            amountRbtc: satoshisToRbtc(amountSats),
+          });
+        }
+
+        return toolResult({
+          network: net,
+          fromBlock: from,
+          toBlock: to,
+          activeFederationBtcAddress: targetAddress,
+          migrationCount: migrations.length,
+          migrations,
         });
       } catch (e) {
         return toolError(e);

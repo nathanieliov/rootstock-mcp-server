@@ -8,6 +8,7 @@ import { registerTransactionTools } from "./tools/transaction.js";
 import { registerContractTools } from "./tools/contract.js";
 import { registerRskTools } from "./tools/rsk.js";
 import { registerBridgeTools } from "./tools/bridge.js";
+import { registerExplorerTools } from "./tools/explorer.js";
 
 const REQUIRED_ENV = ["RSK_MAINNET_URL", "RSK_TESTNET_URL"] as const;
 
@@ -30,6 +31,7 @@ registerTransactionTools(server);
 registerContractTools(server);
 registerRskTools(server);
 registerBridgeTools(server);
+registerExplorerTools(server);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

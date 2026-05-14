@@ -12,6 +12,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.10.2",
     "@rsksmart/bridge-transaction-parser": "^2.1.1",
+    "@rsksmart/powpeg-redeemscript-parser": "^1.1.0",
     "@rsksmart/rsk-precompiled-abis": "^9.0.0-VETIVER",
     "dotenv": "^16.4.7",
     "ethers": "^6.16.0",
